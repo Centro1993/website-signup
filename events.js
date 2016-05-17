@@ -1,4 +1,4 @@
-const http = require('http');
+sconst http = require('http');
 const dispatcher = require('httpdispatcher');
 const async = require('async');
 const datastore = require('nedb');
@@ -26,16 +26,16 @@ var dbCreateEvent = function(event, callback) {
 
 //alle events finden (um sie auf der website anzuzeigen)
 //alternativ nach einer eventid suchen
-var dbQueryEvents = function(eventid, callback) {
+var dbQueryEvents = function(eventid, userId, callback) {
   if (event == null) {
     db.events.find({}, function(err, docs) {
-      callback(err, docs);
+      callback(err, docs, userId);
     });
   } else {
     db.events.find({
       _id: eventid
     }, function(err, docs) {
-      callback(err, docs);
+      callback(err, docs, userId);
     });
   }
 }
@@ -43,12 +43,12 @@ var dbQueryEvents = function(eventid, callback) {
 //user in usercollection einfügen
 var dbInsertUser = function(user, eventId, callback) {
   db.users.insert(user, function(err, res) {
-    callback(err, res, eventId);
+    callback(err, eventId, user);
   });
 }
 
 //checken, ob im event noch platz ist, und emails schicken
-var dbProcessSignup = function(user, event, callback) {
+var dbProcessSignup = function(event, user, callback) {
   //DEFINITION PARTICIPANT
   var participant = {
     user['_id'],
@@ -67,7 +67,11 @@ var dbProcessSignup = function(user, event, callback) {
 
   }
   //event in db updaten
-  db.events.update({event['_id']}, event, {upsert: true}, function(err ,res) {
+  db.events.update({
+    event['_id']
+  }, event, {
+    upsert: true
+  }, function(err, res) {
     callback(err, res);
   });
 
@@ -75,13 +79,49 @@ var dbProcessSignup = function(user, event, callback) {
 
 /*---------------------------FUNKTIONEN----------------*/
 
-//TODO event nach anzahl freier plätze überprüfen
+//event nach anzahl freier plätze überprüfen
 var eventCheckPlaces = function(event) {
+  var reservedPlaces = 0;
 
+  for (var i = 0; i < event.participants.length; i++) {
+    if (event.participants[i].verified == true) {
+      reservedPlaces++;
+    }
+    var places = event.maxParticipants - reservedPlaces;
+  }
   return places;
 }
 
-eventVerifyUser()
+//user verifien, warteliste oder bestätigunsmail schicken
+var eventVerifyUser = function(event, userId, callback) {
+  if (err == null) {
+    //user suchen und verifizieren
+    for (var i = 0; i < event.participants.length; i++) {
+      if (event.participant[i]['_id'] == userId) {
+        event.participant[i].verified == true;
+      }
+    }
+    //frei plätze überprüfen
+    if (event.maxParticipants > eventCheckPlaces(event)) {
+      //TODO bestätiigungsmail schicken
+    } else { //TODO wartelistenmail schicken
+    }
+    //event updaten
+    db.events.update({
+      event['_id']
+    }, event, {
+      upsert: true
+    }, function(err, res) {
+      callback(err, res);
+    });
+  } else {
+    callback(err, null)
+  }
+}
+
+var eventSignoutUser = function(event, user, callback) {
+
+}
 
 /*----------------------HTTP-DISPATCHER------------------------*/
 var handleRequest = function(req, res) {
@@ -99,7 +139,7 @@ var handleRequest = function(req, res) {
 
   //alle events anfordern
   dispatcher.onGet('/queryEvents', function(req, res) {
-    dbQueryEvents(function(err, events) {
+    dbQueryEvents(function(err, null, userID) {
         if (err == null) {
           //bestätigung senden
           res.writeHead(200, {
@@ -119,20 +159,41 @@ var handleRequest = function(req, res) {
 });
 
 //email-link, welcher den user auf verifiziert setzt
-dispatcher.onGet('/verifySignup', function(req, res) {
+dispatcher.onPost('/verifySignup', function(req, res) {
   var body = JSON.parse(req.body);
 
   userId = body.userid;
   eventId = body.eventid;
-//event suchen
-//freie plätze überprüfen
-//user in event eintragen oder nicht, email schicken
+  //event suchen
+  //freie plätze überprüfen
+  //user in event eintragen oder nicht, email schicken
   async.waterfall([
-    async.apply(dbQueryEvents, eventId),
-    eventCheckPlaces
-  ], function(err, places) {
-    if(places )
+    async.apply(dbQueryEvents, eventId, userId),
+    eventVerifySignup
+  ], function(err, res) {
+    if (err == null) {
+      console.log(chalk.green("User verifiziert!"));
+    } else {
+      console.log(chalk.red(err));
+    }
   })
+});
+
+//TODO email-link, welcher einen user aus der veranstaltung austrägt
+dispatcher.onPost('/signOut', function(req, res) {
+  var body = JSON.parse(req.body);
+
+  userId = body.userid;
+  eventId = body.eventid;
+
+  async.waterfall([
+      async.apply(dbQueryEvents, eventId, userId),
+      eventSignoutUser,
+      eventProcessWaitlist
+    ]),
+    function(err, res) {
+
+    });
 });
 
 dispatcher.onPost("/signup", function(req, res) {
