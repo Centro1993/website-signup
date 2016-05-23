@@ -1,8 +1,9 @@
-sconst http = require('http');
+const http = require('http');
 const dispatcher = require('httpdispatcher');
 const async = require('async');
-const datastore = require('nedb');
+const Datastore = require('nedb');
 const chalk = require('chalk');
+const nodemail = require('nodemailer');
 
 //db laden
 db = {};
@@ -14,12 +15,12 @@ db.events.loadDatabase();
 
 //servervariablen
 const host = '0.0.0.0';
-const port = 3001;
+const port = 3002;
 
 /*------------------------NEDB-FUNKTIONEN----------------------*/
 //event in db einfügen
-var dbCreateEvent = function(event, callback) {
-  db.events.insert(doc, function(err, res) {
+var dbCreateEvent = function(newEvent, callback) {
+  db.events.insert(newEvent, function(err, res) {
     callback(err, res);
   });
 }
@@ -27,15 +28,18 @@ var dbCreateEvent = function(event, callback) {
 //alle events finden (um sie auf der website anzuzeigen)
 //alternativ nach einer eventid suchen
 var dbQueryEvents = function(eventid, userId, callback) {
-  if (event == null) {
+  console.log(chalk.blue("Function: dbQueryEvents"));
+  if (eventid == 0) {
     db.events.find({}, function(err, docs) {
+      console.dir(docs);
       callback(err, docs, userId);
     });
   } else {
     db.events.find({
       _id: eventid
     }, function(err, docs) {
-      callback(err, docs, userId);
+      console.dir(docs[0]);
+      callback(err, docs[0], userId);
     });
   }
 }
@@ -49,9 +53,11 @@ var dbInsertUser = function(user, eventId, callback) {
 
 //checken, ob im event noch platz ist, und emails schicken
 var dbProcessSignup = function(event, user, callback) {
+  console.log(chalk.blue("Function: dbProcessSignup"));
+  console.dir(event);
   //DEFINITION PARTICIPANT
   var participant = {
-    user['_id'],
+    userid: user['_id'],
     verified: false,
     timestamp: new Date()
   }
@@ -60,15 +66,15 @@ var dbProcessSignup = function(event, user, callback) {
   event.participants.push(participant);
   //nach freien plätzen prüfen
   if (eventCheckPlaces(event) > 0) {
-    //email mit bestätigungsanfrage schicken
+    //TODO email mit bestätigungsanfrage schicken
 
   } else {
-    //wartelistenmail schicken
+    //TODO wartelistenmail schicken
 
   }
   //event in db updaten
   db.events.update({
-    event['_id']
+    _id: event['_id']
   }, event, {
     upsert: true
   }, function(err, res) {
@@ -81,6 +87,7 @@ var dbProcessSignup = function(event, user, callback) {
 
 //event nach anzahl freier plätze überprüfen
 var eventCheckPlaces = function(event) {
+  console.log(chalk.blue("Function: eventCheckPlaces()"));
   var reservedPlaces = 0;
 
   for (var i = 0; i < event.participants.length; i++) {
@@ -89,43 +96,140 @@ var eventCheckPlaces = function(event) {
     }
     var places = event.maxParticipants - reservedPlaces;
   }
+  console.log(chalk.yellow("Freie Plätze: "+places));
   return places;
 }
 
-//user verifien, warteliste oder bestätigunsmail schicken
+//user verifizieren, warteliste oder bestätigunsmail schicken
 var eventVerifyUser = function(event, userId, callback) {
-  if (err == null) {
-    //user suchen und verifizieren
-    for (var i = 0; i < event.participants.length; i++) {
-      if (event.participant[i]['_id'] == userId) {
-        event.participant[i].verified == true;
+  console.log(chalk.blue("Function: eventVerifyUser()"));
+      //frei plätze überprüfen
+      if (event.maxParticipants > eventCheckPlaces(event)) {
+        //user suchen und verifizieren
+        for (var i = 0; i < event.participants.length; i++) {
+          if (event.participants[i]['_id'] == userId) {
+            console.log(chalk.green("UserId "+ userId + " verifiziert!"));
+            event.participants[i].verified == true;
+          }
+        }
+        //TODO bestätigungsmail schicken
+      } else { //TODO wartelistenmail schicken
       }
+      //event updaten
+      db.events.update({
+        _id: event['_id']
+      }, event, {
+        upsert: true
+      }, function(err, res) {
+        callback(err, res);
+      });
+  }
+  //TODO
+var eventSignoutUser = function(event, user, callback) {
+  /*
+    1. freie plätze prüfen
+    2. user aus event entfernen
+    3. erneut freie plätze prüfen
+    4. platzdifferenz errechnen
+    5. entsprechen der anzahl an freigewordener plätze einladungsmails verschicken
+  */
+  //1.
+  var freePlacesBeforeSignout = eventCheckPlaces(event);
+
+  //2.
+  //user suchen und entfernen
+  for (var i = 0; i < event.participants.length; i++) {
+    if (event.participant[i]['_id'] == userId) {
+      event.splice(i, 1);
     }
-    //frei plätze überprüfen
-    if (event.maxParticipants > eventCheckPlaces(event)) {
-      //TODO bestätiigungsmail schicken
-    } else { //TODO wartelistenmail schicken
+  }
+
+  //3.
+  //warteliste überprüfen
+  var freePlacesAfterSignout = eventCheckPlaces(event);
+
+  //4.
+  var freePlacesDifference = freePlacesBeforeSignout - freePlacesAfterSignout;
+
+  //5.
+  //für alle freigewordenden plätze
+  for (var i = 0; i < freePlacesDifference; i++) {
+    //alle user im event durchlaufen
+    for (var h = 0; h < event.length; h++) {
+
     }
-    //event updaten
-    db.events.update({
-      event['_id']
-    }, event, {
-      upsert: true
-    }, function(err, res) {
-      callback(err, res);
-    });
-  } else {
-    callback(err, null)
   }
 }
 
-var eventSignoutUser = function(event, user, callback) {
+//vordefinierte mail an user über event senden
+var sendMail = function(user, event, mailType) {
+  var transporter = nodemailer.createTransport({
+    // if you do not provide the reverse resolved hostname
+    // then the recipients server might reject the connection
+    name: 'chaostreff-flensburg.de',
+    // use direct sending
+    direct: true
+  });
+
+  //alle verschiedenen mailtypen in nem switchcase
+  switch (mailType) {
+    case 1:
+      //bestätigun eventteilnahme
+      var mailOptions = {
+        from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
+        to: user.email, // list of receivers
+        subject: 'Hello ✔', // Subject line
+        text: 'Hello world 🐴', // plaintext body
+        html: '<b>Hello world 🐴</b>' // html body
+      };
+      break;
+
+      case 2:
+        //bestätigung signout
+        var mailOptions = {
+          from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
+          to: user.email, // list of receivers
+          subject: 'Hello ✔', // Subject line
+          text: 'Hello world 🐴', // plaintext body
+          html: '<b>Hello world 🐴</b>' // html body
+        };
+        break;
+
+      case 3:
+        //wartelistenmail
+        var mailOptions = {
+          from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
+          to: user.email, // list of receivers
+          subject: 'Hello ✔', // Subject line
+          text: 'Hello world 🐴', // plaintext body
+          html: '<b>Hello world 🐴</b>' // html body
+        };
+        break;
+
+        case 4:
+          //platz frei geworden
+          var mailOptions = {
+            from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
+            to: user.email, // list of receivers
+            subject: 'Hello ✔', // Subject line
+            text: 'Hello world 🐴', // plaintext body
+            html: '<b>Hello world 🐴</b>' // html body
+          };
+          break;
+    }
+
+  // send mail with defined transport object
+  transporter.sendMail(mailOptions, function(error, info) {
+    if (error) {
+      return console.log(error);
+    }
+    console.log(chalk.green('Message sent: ' + info.response));
+  });
 
 }
 
 /*----------------------HTTP-DISPATCHER------------------------*/
 var handleRequest = function(req, res) {
-{
   //dispatcher einrichten
   try {
     console.log(req.url);
@@ -139,24 +243,23 @@ var handleRequest = function(req, res) {
 
   //alle events anfordern
   dispatcher.onGet('/queryEvents', function(req, res) {
-    dbQueryEvents(function(err, null, userID) {
+    dbQueryEvents(0, 0, function(err, events) {
         if (err == null) {
           //bestätigung senden
           res.writeHead(200, {
             'Content-type': 'text/HTML'
           });
           res.end(JSON.stringify(events));
-        });
-    }
-    else {
-      //error senden
-      res.writeHead(404, {
-        'Content-type': 'text/HTML'
+        } else {
+          //error senden
+          res.writeHead(404, {
+            'Content-type': 'text/HTML'
+          });
+          res.end(err);
+        }
       });
-      res.end(err);
-    }
+
   });
-});
 
 //email-link, welcher den user auf verifiziert setzt
 dispatcher.onPost('/verifySignup', function(req, res) {
@@ -169,10 +272,9 @@ dispatcher.onPost('/verifySignup', function(req, res) {
   //user in event eintragen oder nicht, email schicken
   async.waterfall([
     async.apply(dbQueryEvents, eventId, userId),
-    eventVerifySignup
+    eventVerifyUser
   ], function(err, res) {
     if (err == null) {
-      console.log(chalk.green("User verifiziert!"));
     } else {
       console.log(chalk.red(err));
     }
@@ -189,31 +291,31 @@ dispatcher.onPost('/signOut', function(req, res) {
   async.waterfall([
       async.apply(dbQueryEvents, eventId, userId),
       eventSignoutUser,
-      eventProcessWaitlist
+      eventUpdate
     ]),
     function(err, res) {
 
-    });
+    }
 });
 
 dispatcher.onPost("/signup", function(req, res) {
   var body = JSON.parse(req.body);
 
-  var eventId = body.eventId;
+  var eventId = body.eventid;
 
   //definition user
   var user = {
-    email = body.email,
-    name = body.name,
-    verified = false
+    email: body.email,
+    name: body.name,
+    verified: false
   }
 
   async.waterfall([
     async.apply(dbInsertUser, user, eventId),
-    dbQueryEvent,
+    dbQueryEvents,
     dbProcessSignup
   ], function(err, res) {
-
+    console.log("User signed up");
   });
 
 
@@ -223,7 +325,7 @@ dispatcher.onPost("/createEvent", function(req, res) {
   var body = JSON.parse(req.body);
 
   //definition event
-  var event = {
+  var newEvent = {
     name: body.name,
     creator: body.creator,
     description: body.description,
@@ -232,24 +334,24 @@ dispatcher.onPost("/createEvent", function(req, res) {
     participants: [],
   }
 
-  dbCreateEvent(event, function(err, res) {
+  dbCreateEvent(newEvent, function(err, doc) {
       if (err == null) {
         //bestätigung senden
         res.writeHead(200, {
           'Content-type': 'text/HTML'
         });
         res.end();
+      }  else {
+          //error senden
+          res.writeHead(404, {
+            'Content-type': 'text/HTML'
+          });
+          res.end(err);
+        }
       });
-  }
-  else {
-    //error senden
-    res.writeHead(404, {
-      'Content-type': 'text/HTML'
     });
-    res.end(err);
-  }
-});
 }
+
 
 //server erstellen
 var server = http.createServer(handleRequest);

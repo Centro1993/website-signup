@@ -1,0 +1,2 @@
+curl -i -H "Accept: application/json" -H "Content-Type: application/json" -X POST -d '{ "email" : "bernd@web.de", "name" :"Bernd Berndson", "eventid" : "pHDzazpRMvZ0ivHA"}
+' 127.0.0.1:3002/signup
