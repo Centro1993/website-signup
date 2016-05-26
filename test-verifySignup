@@ -1,2 +1,2 @@
-curl -i -H "Accept: application/json" -H "Content-Type: application/json" -X POST -d '{ "userid" : "ahypLpeOV10PcOiL", "eventid" :"pHDzazpRMvZ0ivHA"}
+curl -i -H "Accept: application/json" -H "Content-Type: application/json" -X POST -d '{ "userid" : "F1eF32Ajqdq9bkkD", "eventid" :"BogfmMGiKd4Wf85P"}
 ' 127.0.0.1:3002/verifySignup

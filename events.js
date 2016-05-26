@@ -3,7 +3,7 @@ const dispatcher = require('httpdispatcher');
 const async = require('async');
 const Datastore = require('nedb');
 const chalk = require('chalk');
-const nodemail = require('nodemailer');
+const nodemailer = require('nodemailer');
 
 //db laden
 db = {};
@@ -46,8 +46,20 @@ var dbQueryEvents = function(eventid, userId, callback) {
 
 //user in usercollection einfügen
 var dbInsertUser = function(user, eventId, callback) {
+  console.log(chalk.blue("Function: dbInsertUser()"));
   db.users.insert(user, function(err, res) {
-    callback(err, eventId, user);
+    callback(err, eventId, res);
+  });
+}
+
+//user finden
+var dbQueryUser = function(eventId, userId, callback) {
+  console.log(chalk.blue("Function: dbQueryUser()"));
+  db.users.find({
+    _id: userId
+  }, function(err, docs) {
+    console.dir(docs[0]);
+    callback(err, docs[0], eventId);
   });
 }
 
@@ -55,19 +67,22 @@ var dbInsertUser = function(user, eventId, callback) {
 var dbProcessSignup = function(event, user, callback) {
   console.log(chalk.blue("Function: dbProcessSignup"));
   console.dir(event);
+  console.dir(user);
   //DEFINITION PARTICIPANT
   var participant = {
-    userid: user['_id'],
+    _id: user['_id'],
     verified: false,
     timestamp: new Date()
   }
+
+  console.dir(participant);
 
   //user in event eintragen als unbestätigt eintragen
   event.participants.push(participant);
   //nach freien plätzen prüfen
   if (eventCheckPlaces(event) > 0) {
     //TODO email mit bestätigungsanfrage schicken
-
+    sendMail(user['_id'], event['_id'], 1);
   } else {
     //TODO wartelistenmail schicken
 
@@ -103,16 +118,18 @@ var eventCheckPlaces = function(event) {
 //user verifizieren, warteliste oder bestätigunsmail schicken
 var eventVerifyUser = function(event, userId, callback) {
   console.log(chalk.blue("Function: eventVerifyUser()"));
+  console.log(chalk.yellow("UserId: "+ userId));
       //frei plätze überprüfen
-      if (event.maxParticipants > eventCheckPlaces(event)) {
+      if (event.maxParticipants >= eventCheckPlaces(event)) {
         //user suchen und verifizieren
+        console.log(chalk.yellow("Plätze verfügbar, User wird gesucht..."));
         for (var i = 0; i < event.participants.length; i++) {
           if (event.participants[i]['_id'] == userId) {
             console.log(chalk.green("UserId "+ userId + " verifiziert!"));
-            event.participants[i].verified == true;
+            event.participants[i].verified = true;
           }
         }
-        //TODO bestätigungsmail schicken
+        //TODO bestätigunsmail senden
       } else { //TODO wartelistenmail schicken
       }
       //event updaten
@@ -121,6 +138,7 @@ var eventVerifyUser = function(event, userId, callback) {
       }, event, {
         upsert: true
       }, function(err, res) {
+        console.log(chalk.yellow("Event updated: "+res));
         callback(err, res);
       });
   }
@@ -162,11 +180,18 @@ var eventSignoutUser = function(event, user, callback) {
 }
 
 //vordefinierte mail an user über event senden
-var sendMail = function(user, event, mailType) {
+var sendMail = function(userId, eventId, mailType) {
+  console.log(chalk.blue("Function: sendMail(), Type: "+mailType));
+//user und event anhand ihrer id's querien, dann mail schreiben
+async.waterfall([
+  async.apply(dbQueryEvents, eventId, userId),
+  dbQueryUser
+], function(err, user, event) {
+  //mailcode beginnt hier
   var transporter = nodemailer.createTransport({
     // if you do not provide the reverse resolved hostname
     // then the recipients server might reject the connection
-    name: 'chaostreff-flensburg.de',
+    name: 'google.de',
     // use direct sending
     direct: true
   });
@@ -174,7 +199,7 @@ var sendMail = function(user, event, mailType) {
   //alle verschiedenen mailtypen in nem switchcase
   switch (mailType) {
     case 1:
-      //bestätigun eventteilnahme
+      //bestätigung eventteilnahme
       var mailOptions = {
         from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
         to: user.email, // list of receivers
@@ -225,7 +250,7 @@ var sendMail = function(user, event, mailType) {
     }
     console.log(chalk.green('Message sent: ' + info.response));
   });
-
+});
 }
 
 /*----------------------HTTP-DISPATCHER------------------------*/
@@ -273,12 +298,22 @@ dispatcher.onPost('/verifySignup', function(req, res) {
   async.waterfall([
     async.apply(dbQueryEvents, eventId, userId),
     eventVerifyUser
-  ], function(err, res) {
-    if (err == null) {
-    } else {
-      console.log(chalk.red(err));
-    }
-  })
+  ], function(err, result) {
+    //server reply
+      if (err == null) {
+        //bestätigung senden
+        res.writeHead(200, {
+          'Content-type': 'text/HTML'
+        });
+        res.end();
+      }  else {
+          //error senden
+          res.writeHead(404, {
+            'Content-type': 'text/HTML'
+          });
+          res.end(err);
+        }
+    });
 });
 
 //TODO email-link, welcher einen user aus der veranstaltung austrägt
@@ -293,8 +328,21 @@ dispatcher.onPost('/signOut', function(req, res) {
       eventSignoutUser,
       eventUpdate
     ]),
-    function(err, res) {
-
+    function(err, result) {
+      //server reply
+        if (err == null) {
+          //bestätigung senden
+          res.writeHead(200, {
+            'Content-type': 'text/HTML'
+          });
+          res.end();
+        }  else {
+            //error senden
+            res.writeHead(404, {
+              'Content-type': 'text/HTML'
+            });
+            res.end(err);
+          }
     }
 });
 
@@ -310,12 +358,28 @@ dispatcher.onPost("/signup", function(req, res) {
     verified: false
   }
 
+  //TODO prüfen, ob mailaddresse beriets vorhanden ist
+
   async.waterfall([
     async.apply(dbInsertUser, user, eventId),
     dbQueryEvents,
     dbProcessSignup
-  ], function(err, res) {
+  ], function(err, result) {
     console.log("User signed up");
+    //server reply
+      if (err == null) {
+        //bestätigung senden
+        res.writeHead(200, {
+          'Content-type': 'text/HTML'
+        });
+        res.end();
+      }  else {
+          //error senden
+          res.writeHead(404, {
+            'Content-type': 'text/HTML'
+          });
+          res.end(err);
+        }
   });
 
 
@@ -335,6 +399,7 @@ dispatcher.onPost("/createEvent", function(req, res) {
   }
 
   dbCreateEvent(newEvent, function(err, doc) {
+    //server reply
       if (err == null) {
         //bestätigung senden
         res.writeHead(200, {
