@@ -19,7 +19,7 @@ const port = 3002;
 
 /*------------------------NEDB-FUNKTIONEN----------------------*/
 //event in db einfügen
-var dbCreateEvent = function(newEvent, callback) {
+function dbCreateEvent(newEvent, callback) {
   db.events.insert(newEvent, function(err, res) {
     callback(err, res);
   });
@@ -27,7 +27,7 @@ var dbCreateEvent = function(newEvent, callback) {
 
 //alle events finden (um sie auf der website anzuzeigen)
 //alternativ nach einer eventid suchen
-var dbQueryEvents = function(eventid, userId, callback) {
+function dbQueryEvents(eventid, userId, callback) {
   console.log(chalk.blue("Function: dbQueryEvents"));
   if (eventid == 0) {
     db.events.find({}, function(err, docs) {
@@ -45,7 +45,7 @@ var dbQueryEvents = function(eventid, userId, callback) {
 }
 
 //user in usercollection einfügen
-var dbInsertUser = function(user, eventId, callback) {
+function dbInsertUser(user, eventId, callback) {
   console.log(chalk.blue("Function: dbInsertUser()"));
   db.users.insert(user, function(err, res) {
     callback(err, eventId, res);
@@ -53,18 +53,31 @@ var dbInsertUser = function(user, eventId, callback) {
 }
 
 //user finden
-var dbQueryUser = function(eventId, userId, callback) {
+function dbQueryUser(eventId, userId, callback) {
   console.log(chalk.blue("Function: dbQueryUser()"));
-  db.users.find({
-    _id: userId
-  }, function(err, docs) {
-    console.dir(docs[0]);
-    callback(err, docs[0], eventId);
-  });
+  console.log(typeof userId);
+  //entweder eine userId suchen, oder user als objekt bekommen und nach email suchen
+  if (typeof userId === "string") {
+    console.log("Got an ID");
+    db.users.find({
+      _id: userId
+    }, function(err, docs) {
+      console.dir(docs[0]);
+      callback(err, docs[0], eventId);
+    });
+  } else {
+    console.log("Not an ID");
+      db.users.find({
+        email: userId.email
+      }, function(err, docs) {
+        console.dir(docs[0]);
+        callback(err, docs[0], eventId);
+      });
+  }
 }
 
 //checken, ob im event noch platz ist, und emails schicken
-var dbProcessSignup = function(event, user, callback) {
+function dbProcessSignup(event, user, callback) {
   console.log(chalk.blue("Function: dbProcessSignup"));
   console.dir(event);
   console.dir(user);
@@ -111,36 +124,36 @@ var eventCheckPlaces = function(event) {
     }
     var places = event.maxParticipants - reservedPlaces;
   }
-  console.log(chalk.yellow("Freie Plätze: "+places));
+  console.log(chalk.yellow("Freie Plätze: " + places));
   return places;
 }
 
 //user verifizieren, warteliste oder bestätigunsmail schicken
 var eventVerifyUser = function(event, userId, callback) {
-  console.log(chalk.blue("Function: eventVerifyUser()"));
-  console.log(chalk.yellow("UserId: "+ userId));
-      //frei plätze überprüfen
-      if (event.maxParticipants >= eventCheckPlaces(event)) {
-        //user suchen und verifizieren
-        console.log(chalk.yellow("Plätze verfügbar, User wird gesucht..."));
-        for (var i = 0; i < event.participants.length; i++) {
-          if (event.participants[i]['_id'] == userId) {
-            console.log(chalk.green("UserId "+ userId + " verifiziert!"));
-            event.participants[i].verified = true;
-          }
+    console.log(chalk.blue("Function: eventVerifyUser()"));
+    console.log(chalk.yellow("UserId: " + userId));
+    //frei plätze überprüfen
+    if (event.maxParticipants >= eventCheckPlaces(event)) {
+      //user suchen und verifizieren
+      console.log(chalk.yellow("Plätze verfügbar, User wird gesucht..."));
+      for (var i = 0; i < event.participants.length; i++) {
+        if (event.participants[i]['_id'] == userId) {
+          console.log(chalk.green("UserId " + userId + " verifiziert!"));
+          event.participants[i].verified = true;
         }
-        //TODO bestätigunsmail senden
-      } else { //TODO wartelistenmail schicken
       }
-      //event updaten
-      db.events.update({
-        _id: event['_id']
-      }, event, {
-        upsert: true
-      }, function(err, res) {
-        console.log(chalk.yellow("Event updated: "+res));
-        callback(err, res);
-      });
+      //TODO bestätigunsmail senden
+    } else { //TODO wartelistenmail schicken
+    }
+    //event updaten
+    db.events.update({
+      _id: event['_id']
+    }, event, {
+      upsert: true
+    }, function(err, res) {
+      console.log(chalk.yellow("Event updated: " + res));
+      callback(err, res);
+    });
   }
   //TODO
 var eventSignoutUser = function(event, user, callback) {
@@ -181,33 +194,33 @@ var eventSignoutUser = function(event, user, callback) {
 
 //vordefinierte mail an user über event senden
 var sendMail = function(userId, eventId, mailType) {
-  console.log(chalk.blue("Function: sendMail(), Type: "+mailType));
-//user und event anhand ihrer id's querien, dann mail schreiben
-async.waterfall([
-  async.apply(dbQueryEvents, eventId, userId),
-  dbQueryUser
-], function(err, user, event) {
-  //mailcode beginnt hier
-  var transporter = nodemailer.createTransport({
-    // if you do not provide the reverse resolved hostname
-    // then the recipients server might reject the connection
-    name: 'google.de',
-    // use direct sending
-    direct: true
-  });
+  console.log(chalk.blue("Function: sendMail(), Type: " + mailType));
+  //user und event anhand ihrer id's querien, dann mail schreiben
+  async.waterfall([
+    async.apply(dbQueryEvents, eventId, userId),
+    dbQueryUser
+  ], function(err, user, event) {
+    //mailcode beginnt hier
+    var transporter = nodemailer.createTransport({
+      // if you do not provide the reverse resolved hostname
+      // then the recipients server might reject the connection
+      name: 'google.de',
+      // use direct sending
+      direct: true
+    });
 
-  //alle verschiedenen mailtypen in nem switchcase
-  switch (mailType) {
-    case 1:
-      //bestätigung eventteilnahme
-      var mailOptions = {
-        from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
-        to: user.email, // list of receivers
-        subject: 'Hello ✔', // Subject line
-        text: 'Hello world 🐴', // plaintext body
-        html: '<b>Hello world 🐴</b>' // html body
-      };
-      break;
+    //alle verschiedenen mailtypen in nem switchcase
+    switch (mailType) {
+      case 1:
+        //bestätigung eventteilnahme
+        var mailOptions = {
+          from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
+          to: user.email, // list of receivers
+          subject: 'Hello ✔', // Subject line
+          text: 'Hello world 🐴', // plaintext body
+          html: '<b>Hello world 🐴</b>' // html body
+        };
+        break;
 
       case 2:
         //bestätigung signout
@@ -231,26 +244,26 @@ async.waterfall([
         };
         break;
 
-        case 4:
-          //platz frei geworden
-          var mailOptions = {
-            from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
-            to: user.email, // list of receivers
-            subject: 'Hello ✔', // Subject line
-            text: 'Hello world 🐴', // plaintext body
-            html: '<b>Hello world 🐴</b>' // html body
-          };
-          break;
+      case 4:
+        //platz frei geworden
+        var mailOptions = {
+          from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
+          to: user.email, // list of receivers
+          subject: 'Hello ✔', // Subject line
+          text: 'Hello world 🐴', // plaintext body
+          html: '<b>Hello world 🐴</b>' // html body
+        };
+        break;
     }
 
-  // send mail with defined transport object
-  transporter.sendMail(mailOptions, function(error, info) {
-    if (error) {
-      return console.log(error);
-    }
-    console.log(chalk.green('Message sent: ' + info.response));
+    // send mail with defined transport object
+    transporter.sendMail(mailOptions, function(error, info) {
+      if (error) {
+        return console.log(error);
+      }
+      console.log(chalk.green('Message sent: ' + info.response));
+    });
   });
-});
 }
 
 /*----------------------HTTP-DISPATCHER------------------------*/
@@ -269,12 +282,73 @@ var handleRequest = function(req, res) {
   //alle events anfordern
   dispatcher.onGet('/queryEvents', function(req, res) {
     dbQueryEvents(0, 0, function(err, events) {
+      if (err == null) {
+        //bestätigung senden
+        res.writeHead(200, {
+          'Content-type': 'text/HTML'
+        });
+        res.end(JSON.stringify(events));
+      } else {
+        //error senden
+        res.writeHead(404, {
+          'Content-type': 'text/HTML'
+        });
+        res.end(err);
+      }
+    });
+
+  });
+
+  //email-link, welcher den user auf verifiziert setzt
+  dispatcher.onPost('/verifySignup', function(req, res) {
+    var body = JSON.parse(req.body);
+
+    userId = body.userid;
+    eventId = body.eventid;
+    //event suchen
+    //freie plätze überprüfen
+    //user in event eintragen oder nicht, email schicken
+    async.waterfall([
+      async.apply(dbQueryEvents, eventId, userId),
+      eventVerifyUser
+    ], function(err, result) {
+      //server reply
+      if (err == null) {
+        //bestätigung senden
+        res.writeHead(200, {
+          'Content-type': 'text/HTML'
+        });
+        res.end();
+      } else {
+        //error senden
+        res.writeHead(404, {
+          'Content-type': 'text/HTML'
+        });
+        res.end(err);
+      }
+    });
+  });
+
+  //TODO email-link, welcher einen user aus der veranstaltung austrägt
+  dispatcher.onPost('/signout', function(req, res) {
+    var body = JSON.parse(req.body);
+
+    userId = body.userid;
+    eventId = body.eventid;
+
+    async.waterfall([
+        async.apply(dbQueryEvents, eventId, userId),
+        eventSignoutUser,
+        eventUpdate
+      ]),
+      function(err, result) {
+        //server reply
         if (err == null) {
           //bestätigung senden
           res.writeHead(200, {
             'Content-type': 'text/HTML'
           });
-          res.end(JSON.stringify(events));
+          res.end();
         } else {
           //error senden
           res.writeHead(404, {
@@ -282,139 +356,89 @@ var handleRequest = function(req, res) {
           });
           res.end(err);
         }
-      });
-
+      }
   });
 
-//email-link, welcher den user auf verifiziert setzt
-dispatcher.onPost('/verifySignup', function(req, res) {
-  var body = JSON.parse(req.body);
 
-  userId = body.userid;
-  eventId = body.eventid;
-  //event suchen
-  //freie plätze überprüfen
-  //user in event eintragen oder nicht, email schicken
-  async.waterfall([
-    async.apply(dbQueryEvents, eventId, userId),
-    eventVerifyUser
-  ], function(err, result) {
-    //server reply
-      if (err == null) {
-        //bestätigung senden
-        res.writeHead(200, {
-          'Content-type': 'text/HTML'
-        });
-        res.end();
-      }  else {
-          //error senden
-          res.writeHead(404, {
-            'Content-type': 'text/HTML'
-          });
-          res.end(err);
-        }
-    });
-});
+//user bei event eintragen und in usercollection speichern
+  dispatcher.onPost("/signup", function(req, res) {
+    var body = JSON.parse(req.body);
 
-//TODO email-link, welcher einen user aus der veranstaltung austrägt
-dispatcher.onPost('/signOut', function(req, res) {
-  var body = JSON.parse(req.body);
+    var eventId = body.eventid;
 
-  userId = body.userid;
-  eventId = body.eventid;
+    //definition user
+    var user = {
+      email: body.email,
+      name: body.name,
+      verified: false
+    }
 
-  async.waterfall([
-      async.apply(dbQueryEvents, eventId, userId),
-      eventSignoutUser,
-      eventUpdate
-    ]),
-    function(err, result) {
-      //server reply
-        if (err == null) {
-          //bestätigung senden
-          res.writeHead(200, {
-            'Content-type': 'text/HTML'
-          });
-          res.end();
-        }  else {
+    //prüfen, ob mailaddresse beriets vorhanden ist
+    dbQueryUser(null, user, function(err, queriedUser) {
+      //user nicht vorhanden
+      if(typeof queriedUser !== "object") {
+        async.waterfall([
+          async.apply(dbInsertUser, user, eventId),
+          dbQueryEvents,
+          dbProcessSignup
+        ], function(error, result) {
+          //server reply
+          if (error == null) {
+            console.log(chalk.green("User signed up"));
+            //bestätigung senden
+            res.writeHead(200, {
+              'Content-type': 'text/HTML'
+            });
+            res.end();
+          } else {
             //error senden
             res.writeHead(404, {
               'Content-type': 'text/HTML'
             });
-            res.end(err);
+            res.end(error);
           }
-    }
-});
-
-dispatcher.onPost("/signup", function(req, res) {
-  var body = JSON.parse(req.body);
-
-  var eventId = body.eventid;
-
-  //definition user
-  var user = {
-    email: body.email,
-    name: body.name,
-    verified: false
-  }
-
-  //TODO prüfen, ob mailaddresse beriets vorhanden ist
-
-  async.waterfall([
-    async.apply(dbInsertUser, user, eventId),
-    dbQueryEvents,
-    dbProcessSignup
-  ], function(err, result) {
-    console.log("User signed up");
-    //server reply
-      if (err == null) {
-        //bestätigung senden
-        res.writeHead(200, {
+        });
+      } else {    //user bereits vorhanden
+        console.log(chalk.red("User has signed up before"));
+        //error senden
+        res.writeHead(404, {
           'Content-type': 'text/HTML'
         });
-        res.end();
-      }  else {
-          //error senden
-          res.writeHead(404, {
-            'Content-type': 'text/HTML'
-          });
-          res.end(err);
-        }
+        res.end("User bereits vorhanden");
+      }
+    });
   });
 
+  dispatcher.onPost("/createEvent", function(req, res) {
+    var body = JSON.parse(req.body);
 
-});
+    //definition event
+    var newEvent = {
+      name: body.name,
+      creator: body.creator,
+      description: body.description,
+      time: body.time,
+      maxParticipants: body.maxParticipants,
+      participants: [],
+    }
 
-dispatcher.onPost("/createEvent", function(req, res) {
-  var body = JSON.parse(req.body);
-
-  //definition event
-  var newEvent = {
-    name: body.name,
-    creator: body.creator,
-    description: body.description,
-    time: body.time,
-    maxParticipants: body.maxParticipants,
-    participants: [],
-  }
-
-  dbCreateEvent(newEvent, function(err, doc) {
-    //server reply
+    dbCreateEvent(newEvent, function(err, doc) {
+      //server reply
       if (err == null) {
         //bestätigung senden
         res.writeHead(200, {
           'Content-type': 'text/HTML'
         });
         res.end();
-      }  else {
-          //error senden
-          res.writeHead(404, {
-            'Content-type': 'text/HTML'
-          });
-          res.end(err);
-        }
-      });
+      } else {
+        //error senden
+        res.writeHead(404, {
+          'Content-type': 'text/HTML'
+        });
+        res.end(err);
+      }
     });
+  });
 }
 
 
