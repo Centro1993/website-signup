@@ -94,11 +94,11 @@ function dbProcessSignup(event, user, callback) {
   event.participants.push(participant);
   //nach freien plätzen prüfen
   if (eventCheckPlaces(event) > 0) {
-    //TODO email mit bestätigungsanfrage schicken
+    //email mit bestätigungsanfrage schicken
     sendMail(user['_id'], event['_id'], 1);
   } else {
-    //TODO wartelistenmail schicken
-
+    //wartelistenmail schicken
+    sendMail(user['_id'], event['_id'], 3);
   }
   //event in db updaten
   db.events.update({
@@ -142,8 +142,10 @@ var eventVerifyUser = function(event, userId, callback) {
           event.participants[i].verified = true;
         }
       }
-      //TODO bestätigunsmail senden
-    } else { //TODO wartelistenmail schicken
+      //bestätigunsmail senden
+      sendMail(event['_id'], userId, 1);
+    } else { //wartelistenmail schicken
+      sendMail(event['_id'], userId, 3);
     }
     //event updaten
     db.events.update({
@@ -209,16 +211,18 @@ var sendMail = function(userId, eventId, mailType) {
       direct: true
     });
 
-    //alle verschiedenen mailtypen in nem switchcase
+    //TODO valle verschiedenen mailtypen in nem switchcase
     switch (mailType) {
       case 1:
+      //verififizierungs-link
+      var verifyLink ="<a>www.chaostreff-flensburg.de";
         //bestätigung eventteilnahme
         var mailOptions = {
           from: '"Chaostreff Flensburg" <events@chaostreff-flensburg.de>', // sender address
           to: user.email, // list of receivers
-          subject: 'Hello ✔', // Subject line
-          text: 'Hello world 🐴', // plaintext body
-          html: '<b>Hello world 🐴</b>' // html body
+          subject: 'Teilnahme an '+event.name, // Subject line
+          text: 'Hallo '+user.name+'!', // plaintext body
+          html: '<b>Hallo '+user.name+'! Um deine Teilnahme am Event '+event.name+' zu bestätigen, klicke auf diesen Link: '+verifyLink'</b>' // html body
         };
         break;
 
